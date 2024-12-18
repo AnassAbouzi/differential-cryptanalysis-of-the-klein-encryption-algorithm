@@ -14,11 +14,15 @@ int hex_to_int(char c) {
 	}
 }
 
-void add_round_key(int *state, int *key) {
+void xor_nibbles(int *nibble1, int *nibble2, int l) {
 	int i;
-	for (i = 0; i < 16; i++) {
-		state[i] = state[i] ^ key[i];
+	for (i = 0; i < l; i++) {
+		nibble1[i] = nibble1[i] ^ nibble2[i];
 	}
+}
+
+void add_round_key(int *state, int *key) {
+	xor_nibbles(state, key, 16);
 }
 
 int sbox[] = {7, 4, 0xa, 9, 1, 0xf, 0xb, 0, 0xc, 3, 2, 6, 8, 0xe, 0xd, 5};
@@ -73,10 +77,10 @@ void mix_column(int* column) {
 		column_2[i] = (column[i] << 1) ^ (f * 0x1B); // After the multiplication by 2 (left shift) we xor with the value 0x1B because the operations are done in rijndael's galois field (F_2)^8 (all operations are modulo the polynomial x^8 + x^4 + x^3 + x + 1 which we can represent in hex as 0x11B)
 	}
 	//the following are the calculations done in the mixColumn operation (that we can represent by a matrice multiplication with a column)
-	column[0] = column_2[0] ^ column_1[1] ^ column_2[1] ^ column_1[2] ^ column_1[3];
-	column[1] = column_1[0] ^ column_2[1] ^ column_1[2] ^ column_2[2] ^ column_1[3];
-	column[2] = column_1[0] ^ column_1[1] ^ column_2[2] ^ column_1[3] ^ column_2[3];
-	column[3] = column_1[0] ^ column_2[0] ^ column_1[1] ^ column_1[2] ^ column_2[3];
+	column[0] = (column_2[0] ^ column_1[1] ^ column_2[1] ^ column_1[2] ^ column_1[3]) & 0xff; // we add "& 0xff" to make sure we only operate on the least significant 8 bits
+	column[1] = (column_1[0] ^ column_2[1] ^ column_1[2] ^ column_2[2] ^ column_1[3]) & 0xff;
+	column[2] = (column_1[0] ^ column_1[1] ^ column_2[2] ^ column_1[3] ^ column_2[3]) & 0xff;
+	column[3] = (column_1[0] ^ column_2[0] ^ column_1[1] ^ column_1[2] ^ column_2[3]) & 0xff;
 	free(column_1);
 	free(column_2);
 }
@@ -106,6 +110,54 @@ void mix_nibbles(int *state) {
 	free(col2);
 }
 
+void rotate_nibbles_by_1(int *nibble) {
+	int tmp1, tmp2, i;
+	tmp1 = nibble[0];
+	tmp2 = nibble[1];
+	for (i = 0; i < 6; i++) {
+		nibble[i] = nibble[i + 2];
+	}
+	nibble[6] = tmp1;
+	nibble[7] = tmp2;
+}
+
+void key_derivation(int *key, int round) {
+	// seperating the key into two tuples
+	int *tuple1 = (int*) malloc(8 * sizeof(int));
+	int *tuple2 = (int*) malloc(8 * sizeof(int));
+	int i;
+	for (i = 0; i < 8; i++) {
+		tuple1[i] = key[i];
+		tuple2[i] = key[i + 8];
+	}
+
+	//rotating each tuple to the left by 1 byte
+	rotate_nibbles_by_1(tuple1);
+	rotate_nibbles_by_1(tuple2);
+
+	//set the right tuple to the xor of the two tuples
+        xor_nibbles(tuple2, tuple1, 8);
+        //set the value of left tuple to that of the right tuple (we achieve th>
+        xor_nibbles(tuple1, tuple2, 8);
+        //xor the third byte of the left tuple with the round counter
+        tuple1[5] = tuple1[5] ^ round;
+        //apply the sbox to the second and third bytes of the right tuple
+        tuple2[2] = sbox[tuple2[2]];
+        tuple2[3] = sbox[tuple2[3]];
+	tuple2[4] = sbox[tuple2[4]];
+	tuple2[5] = sbox[tuple2[5]];
+
+	//convert the two tuples back to the original key format
+	for (i = 0; i < 8; i++) {
+		key[i] = tuple1[i];
+		key[i + 8] = tuple2[i];
+	}
+
+	free(tuple1);
+	free(tuple2);
+}
+
+/*
 void rotate_tuple(int* tuple) {
 	int temp, i;
 	temp = tuple[0];
@@ -137,6 +189,8 @@ void key_derivation(int* key, int round) {
 	rotate_tuple(tuple2);
 	//set the right tuple to the xor of the two tuples
 	xor_tuples(tuple2, tuple1);
+	//set the value of left tuple to that of the right tuple (we achieve this by xoring tuple1 and (tuple1 xor tuple2) which gives us tuple2)
+	xor_tuples(tuple1, tuple2);
 	//xor the third byte of the left tuple with the round counter
 	tuple1[2] = tuple1[2] ^ round;
 	//apply the sbox to the second and third bytes of the right tuple
@@ -153,7 +207,7 @@ void key_derivation(int* key, int round) {
 	free(tuple1);
 	free(tuple2);
 }
-
+*/
 void main(int argc, char *argv[]) {
 	char* input = argv[1];
 	char* hex_key = argv[2];
@@ -166,20 +220,27 @@ void main(int argc, char *argv[]) {
 		key[i] = hex_to_int(hex_key[i]);
 	}
 
-	for (i = 0; i < 12; i++) {
+	for (i = 1; i <= 12; i++) {
 		add_round_key(state, key);
 		sub_nibbles(state);
 		rotate_nibbles(state);
 		mix_nibbles(state);
-		key_derivation(key, i + 1);
+		key_derivation(key, i);
 	}
+
+	add_round_key(state, key);
 
 	for (i = 0; i < 16; i++) {
 		printf("%X ", state[i]);
 	}
 
 	printf("\n");
-
+/*
+	for (i = 0; i < 16; i++) {
+                printf("%X ", key[i]);
+        }
+	printf("\n");
+*/
 	free(key);
 	free(state);
 }
