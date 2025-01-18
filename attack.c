@@ -1,15 +1,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "klein.h"
+#include "time.h"
 
 #define SIZE_PLAIN 16
 #define true 1
 #define false 0
-
-
-
-const int B_VALUE[] = {0, 0, 0, 0, 0, 0xb, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-const int KEY[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 typedef struct 
 {
@@ -21,17 +17,21 @@ typedef struct
 } Couple;
 
 /**
- * @brief Klein inverse round function
+ * @brief Applying the inverse rijndael MixColumns operation to a single column
  * 
- * @param state current round state
- * @param key current round subkey
- * @param round current round
+ * @param column 4-byte table
  */
-void inv_round_function(int* state, int* key, int round) {
-	inv_mix_nibbles(state);
-	inv_rotate_nibbles(state);
-	sub_nibbles(state);
-	add_round_key(state, key);
+void inv_mix_column(int* column) {
+	int* column_tmp = (int*) malloc(4 * sizeof(int)); // this variable is just a copy of the initial column
+	for (int i = 0; i < 4; i++) {
+		column_tmp[i] = column[i] & 0xff;
+		}
+	//the following are the calculations done in the mixColumn operation (that we can represent by a matrice multiplication with a column)
+	column[0] = (mult11[column_tmp[0]] ^ mult13[column_tmp[1]] ^ mult9[column_tmp[2]] ^ mult14[column_tmp[3]]) & 0xff; // we add "& 0xff" to make sure we only operate on the least significant 8 bits
+	column[1] = (mult14[column_tmp[0]] ^ mult11[column_tmp[1]] ^ mult13[column_tmp[2]] ^ mult9[column_tmp[3]]) & 0xff;
+	column[2] = (mult9[column_tmp[0]] ^ mult14[column_tmp[1]] ^ mult11[column_tmp[2]] ^ mult13[column_tmp[3]]) & 0xff;
+	column[3] = (mult13[column_tmp[0]] ^ mult9[column_tmp[1]] ^ mult14[column_tmp[2]] ^ mult11[column_tmp[3]]) & 0xff;
+	free(column_tmp);
 }
 
 /**
@@ -65,24 +65,6 @@ void inv_mix_nibbles(int *state) {
 }
 
 /**
- * @brief Applying the inverse rijndael MixColumns operation to a single column
- * 
- * @param column 4-byte table
- */
-void inv_mix_column(int* column) {
-	int* column_tmp = (int*) malloc(4 * sizeof(int)); // this variable is just a copy of the initial column
-	for (int i = 0; i < 4; i++) {
-		column_tmp[i] = column[i];
-		}
-	//the following are the calculations done in the mixColumn operation (that we can represent by a matrice multiplication with a column)
-	column[0] = (mult11[column_tmp[0]] ^ mult13[column_tmp[1]] ^ mult9[column_tmp[2]] ^ mult14[column_tmp[3]]) & 0xff; // we add "& 0xff" to make sure we only operate on the least significant 8 bits
-	column[1] = (mult14[column_tmp[0]] ^ mult11[column_tmp[1]] ^ mult13[column_tmp[2]] ^ mult9[column_tmp[3]]) & 0xff;
-	column[2] = (mult9[column_tmp[0]] ^ mult14[column_tmp[1]] ^ mult11[column_tmp[2]] ^ mult13[column_tmp[3]]) & 0xff;
-	column[3] = (mult13[column_tmp[0]] ^ mult9[column_tmp[1]] ^ mult14[column_tmp[2]] ^ mult11[column_tmp[3]]) & 0xff;
-	free(column_tmp);
-}
-
-/**
  * @brief rotate each nibble of the state by two bytes to the right
  * 
  * @param state the current state
@@ -104,9 +86,18 @@ void inv_rotate_nibbles(int *state) {
 	free(temp);
 }
 
-
-void oracle(int* out, int* state){
-    klein_cipher(out,state, KEY);
+/**
+ * @brief Klein inverse round function
+ * 
+ * @param state current round state
+ * @param key current round subkey
+ * @param round current round
+ */
+void inv_round_function(int* state, int* key, int round) {
+	inv_mix_nibbles(state);
+	inv_rotate_nibbles(state);
+	sub_nibbles(state);
+	add_round_key(state, key);
 }
 
 /**
@@ -114,14 +105,18 @@ void oracle(int* out, int* state){
  * 
  * @param out plain
  */
-void generateCouple(Couple c){
-    for (int i = 0; i < SIZE_PLAIN ; i++)
-    {
-        c.m1[i] = rand()%255;
-        xor_nibbles(c.m2[i], c.m1,B_VALUE,SIZE_PLAIN);
-        oracle(c.c1, c.m1);
-        oracle(c.c2, c.m2);
+void generateCouple(Couple* c, int* diff, int* key){
+    if (c->m1 == NULL || c->m2 == NULL || c->c1 == NULL || c->c2 == NULL || diff == NULL || key == NULL) {
+        fprintf(stderr, "Error: One or more pointers are NULL\n");
+        return;
     }
+	for (int i = 0; i < SIZE_PLAIN ; i++)
+    {
+        c->m1[i] = rand() % 255;
+    }
+	xor_nibbles(c->m2, c->m1, diff, SIZE_PLAIN);
+    klein_cipher(c->c1, c->m1, key);
+	klein_cipher(c->c2, c->m2, key);
 }
 
 int differential_pathway_check(int *state){
@@ -137,29 +132,43 @@ int differential_pathway_check(int *state){
 
 
 int main(int argc, char ** argv){
+	srand(time(NULL));
+	printf("1");
+	int * B_VALUE = (int*) malloc(16 * sizeof(int));
+	int * KEY = (int*) malloc(16 * sizeof(int));
+	for (int i = 0; i < 16; i++) {
+		B_VALUE[i] = 0;
+		KEY[i] = 0;
+	}
+	B_VALUE[5] = 0xb;
+	
 
-    Couple c;
-    c.m1 = (int*) malloc(16 * sizeof(int));
-    c.m2 = (int*) malloc(16 * sizeof(int));
-    c.c1 = (int*) malloc(16 * sizeof(int));
-    c.c2 = (int*) malloc(16 * sizeof(int));
-    c.cprime = (int*) malloc(16 * sizeof(int));
 
+    Couple* c = malloc(sizeof(Couple));
+    c->m1 = (int*) malloc(16 * sizeof(int));
+    c->m2 = (int*) malloc(16 * sizeof(int));
+    c->c1 = (int*) malloc(16 * sizeof(int));
+    c->c2 = (int*) malloc(16 * sizeof(int));
+    c->cprime = (int*) malloc(16 * sizeof(int));
     do
     {
-        generateCouple(c);
-        inv_mix_nibbles(c.c1);
-        inv_mix_nibbles(c.c2);
-        xor_nibbles(c.cprime, c.c1,c.c2,SIZE_PLAIN);
-    } while (differential_pathway_check(c.cprime)==false);
+        generateCouple(c, B_VALUE, KEY);
+        inv_mix_nibbles(c->c1);
+        inv_mix_nibbles(c->c2);
+        xor_nibbles(c->cprime, c->c1,c->c2,SIZE_PLAIN);
+    } while (differential_pathway_check(c->cprime)==false);
     
+	printf("2");
+	
     
 
-    free(c.cprime);
-    free(c.m1);
-    free(c.m2);
-    free(c.c1);
-    free(c.c2);
-
+    free(c->cprime);
+    free(c->m1);
+    free(c->m2);
+    free(c->c1);
+    free(c->c2);
+	free(c);
+	free(B_VALUE);
+	free(KEY);
     return 0;
 }
