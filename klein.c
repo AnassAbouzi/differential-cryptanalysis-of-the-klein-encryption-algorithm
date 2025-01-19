@@ -3,7 +3,7 @@
 
 #include <string.h>
 
-#define ROUNDS 12
+#define ROUNDS 4
 int sbox[] = {7, 4, 0xa, 9, 1, 0xf, 0xb, 0, 0xc, 3, 2, 6, 8, 0xe, 0xd, 5};
 
 //rijndael multiplication lookup tables
@@ -66,6 +66,10 @@ void add_round_key(int *state, int *key) {
 void sub_nibbles(int *state) {
 	int i;
 	for (i = 0; i < 16; i++) {
+		if (state[i]>= 16){
+			sprintf(stderr,"Out of bounds SBOX\n");
+			exit(22);
+		}
 		state[i] = sbox[state[i]];
 	}
 }
@@ -230,55 +234,13 @@ void round_function(int* state, int* key, int round) {
  */
 void klein_cipher(int* out, int* state, int* key){
 	int * tmp_key = (int*) malloc(16 * sizeof(int));
-	memcpy(tmp_key, key, 16);
+	memcpy(tmp_key, key, sizeof(int) * 16);
 	for (int i = 1; i <= ROUNDS; i++) {
 		round_function(state, tmp_key, i);
 	}
 	add_round_key(state, tmp_key);
-	memcpy(out, state, 16);
+	memcpy(out, state, sizeof(int) * 16);
 	free(tmp_key);
 }
 
-/**
- * @brief Klein computation
- * 
- * @param argc 
- * @param argv 1 - Plaintext (hexae) 2 - key (Hexa) 
- */
-// int main(int argc, char *argv[]) {
 
-// 	//check the arguments
-// 	if (argc!=3){
-// 		fprintf(stderr, "Arguments missing\n");
-// 		return 1;
-// 	}
-
-// 	char* input = argv[1];
-// 	char* hex_key = argv[2];
-
-// 	int* state = (int*) malloc(16 * sizeof(int));
-// 	int* key = (int*) malloc(16 * sizeof(int));
-// 	int* out = (int*) malloc(16 * sizeof(int));
-// 	int i;
-
-// 	//convert hexa to int
-// 	for (i = 0; i < 16; i++) {
-// 		state[i] = hex_to_int(input[i]);
-// 		key[i] = hex_to_int(hex_key[i]);
-// 	}
-
-// 	//cipher engine
-// 	klein_cipher(out, state, key);
-
-// 	//print result
-// 	for (i = 0; i < 16; i++) {
-// 		printf("%X ", state[i]);
-// 	}
-
-// 	printf("\n");
-
-// 	free(out);
-// 	free(key);
-// 	free(state);
-// 	return 0;
-// }

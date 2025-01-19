@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "klein.h"
 #include "time.h"
+#include <omp.h>
 
 #define SIZE_PLAIN 16
 #define true 1
@@ -112,7 +113,7 @@ void generateCouple(Couple* c, int* diff, int* key){
     }
 	for (int i = 0; i < SIZE_PLAIN ; i++)
     {
-        c->m1[i] = rand() % 255;
+        c->m1[i] = rand() % 16;
     }
 	xor_nibbles(c->m2, c->m1, diff, SIZE_PLAIN);
     klein_cipher(c->c1, c->m1, key);
@@ -122,7 +123,7 @@ void generateCouple(Couple* c, int* diff, int* key){
 int differential_pathway_check(int *state){
     for (int i = 0; i <= SIZE_PLAIN / 2; i++)
     {
-        if (!state[2 * i]){
+        if (state[2 * i] != 0){
             return false;
         }
     }
@@ -130,44 +131,69 @@ int differential_pathway_check(int *state){
     
 }
 
+void show(int* input, int lenght) {
+	for (int i = 0; i < lenght; i++) {
+		printf("%d ", input[i]);
+	}
+	printf("\n");
+}
 
 int main(int argc, char ** argv){
 	srand(time(NULL));
-	printf("1");
+	printf("Attack on %d-klein\n", ROUNDS);
 	int * B_VALUE = (int*) malloc(16 * sizeof(int));
 	int * KEY = (int*) malloc(16 * sizeof(int));
 	for (int i = 0; i < 16; i++) {
 		B_VALUE[i] = 0;
-		KEY[i] = 0;
+		KEY[i] = i;
 	}
 	B_VALUE[5] = 0xb;
 	
+	printf("Key value: ");
+	show(KEY, 16);
 
+    Couple* c;
+    int counter = 0;
+	int found = false;
 
-    Couple* c = malloc(sizeof(Couple));
-    c->m1 = (int*) malloc(16 * sizeof(int));
-    c->m2 = (int*) malloc(16 * sizeof(int));
-    c->c1 = (int*) malloc(16 * sizeof(int));
-    c->c2 = (int*) malloc(16 * sizeof(int));
-    c->cprime = (int*) malloc(16 * sizeof(int));
-    do
-    {
-        generateCouple(c, B_VALUE, KEY);
-        inv_mix_nibbles(c->c1);
-        inv_mix_nibbles(c->c2);
-        xor_nibbles(c->cprime, c->c1,c->c2,SIZE_PLAIN);
-    } while (differential_pathway_check(c->cprime)==false);
-    
-	printf("2");
-	
-    
+	#pragma omp parallel shared(found, counter) private(c)
+	{
+		c = malloc(sizeof(Couple));
+		c->m1 = (int*) malloc(16 * sizeof(int));
+		c->m2 = (int*) malloc(16 * sizeof(int));
+		c->c1 = (int*) malloc(16 * sizeof(int));
+		c->c2 = (int*) malloc(16 * sizeof(int));
+		c->cprime = (int*) malloc(16 * sizeof(int));
 
-    free(c->cprime);
-    free(c->m1);
-    free(c->m2);
-    free(c->c1);
-    free(c->c2);
-	free(c);
+		while (found==false)
+		{
+			#pragma omp atomic
+			counter++;
+			// generation of plaintext couples verifying : m1 + m2 = B_VALUE
+			generateCouple(c, B_VALUE, KEY);
+			// inverse mix nibbles operation of c1 + c2
+			inv_mix_nibbles(c->c1);
+			inv_mix_nibbles(c->c2);
+			xor_nibbles(c->cprime, c->c1,c->c2,SIZE_PLAIN);
+
+			#pragma omp critical
+			{
+				// verification of the format of c' (result after inversing the mix nibbles operation of c1 + c2)
+				if (differential_pathway_check(c->cprime)==true){
+					found = true;
+					printf("Number of iterations: %d\n", counter);
+					show(c->cprime, SIZE_PLAIN);
+				}
+			}
+		}
+		free(c->cprime);
+		free(c->m1);
+		free(c->m2);
+		free(c->c1);
+		free(c->c2);
+		free(c);
+	}
+
 	free(B_VALUE);
 	free(KEY);
     return 0;
