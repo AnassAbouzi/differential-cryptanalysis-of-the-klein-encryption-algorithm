@@ -17,11 +17,13 @@ typedef struct Node {
  */
 Node* create_node(int* data) {
     Node* new_node = (Node*)malloc(sizeof(Node));
+    new_node->data = (int *) malloc(16 * sizeof(int));
     if (new_node == NULL) {
         fprintf(stderr, "Erreur d'allocation mémoire\n");
         exit(EXIT_FAILURE);
     }
-    new_node->data = data;
+    memcpy(new_node->data, data, 16*sizeof(int));
+    //new_node->data = data;
     new_node->next = NULL;
     return new_node;
 }
@@ -44,7 +46,6 @@ void append(Node** head_ref, int* new_data) {
     while (last->next != NULL) {
         last = last->next;
     }
-
     last->next = new_node;
 }
 
@@ -59,6 +60,19 @@ void print_list(Node* node) {
         node = node->next;
     }
 }
+
+/**
+ * @brief Search a value in the list
+ * 
+ */
+ int isInList(Node* node, int data){
+    while (node != NULL) {
+        if (node->data==data)
+            return 1;
+        node = node->next;
+    }
+    return 0;
+ }
 
 /**
  * @brief Function to free the memory

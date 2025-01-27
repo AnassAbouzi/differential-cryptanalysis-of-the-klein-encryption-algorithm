@@ -127,7 +127,7 @@ int differential_pathway_check(int *state){
     for (int i = 0; i <= SIZE_PLAIN / 2; i++)
     {
         if (state[2 * i] != 0){
-            return false;
+	        return false;
         }
     }
     return true;
@@ -234,35 +234,40 @@ int main(int argc, char ** argv){
 	for (int j = 0; j < 16; j++) {
 			candidate_key[j] = KEY_tild[j];
 	}
-	// #pragma omp parallel for
-	for (uint64_t k = 0; k < (1ULL << 16); k++) {
+	#pragma omp parallel for
+	for (uint64_t k = 0; k < (1ULL << 28); k++) {
 		candidate_key[15] = k & 0xF;
 		candidate_key[13] = (k >> 4) & 0xF;
 		candidate_key[11] = (k >> 8) & 0xF;
 		candidate_key[9] = (k >> 12) & 0xF;
-
+		candidate_key[7] = (k >> 16) & 0xF;
+		candidate_key[5] = (k >> 20) & 0xF;
+		candidate_key[3] = (k >> 24) & 0xF;
+		
 		xor_nibbles(tmp1, couples[0].c1, candidate_key, 16);
 		xor_nibbles(tmp2, couples[0].c2, candidate_key, 16);
 		sub_nibbles(tmp1);
 		sub_nibbles(tmp2);
 		xor_nibbles(tmp1, tmp1, tmp2, 16);
-		if (differential_pathway_check(tmp1) == true) {
+		if ((differential_pathway_check(tmp1) == true)){// && (isInList(&list, candidate_key)==0)) {
 			append(&list, candidate_key);
 			// memcpy(probable_keys[prob_keys_l], candidate_key, 16 * sizeof(int));
 			// prob_keys_l++;
 		}
 	}
-	memcpy(origin_key, list->data, 16 * sizeof(16));
+
+	memcpy(origin_key, list->data, 16 * sizeof(int));
 	
 	// key reconstruction
 	rotate_nibbles(origin_key);
 	mix_nibbles(origin_key);
-	printf("original key : ");
-	show(origin_key, 16);
+	printf("key tild: ");
+	show(KEY_tild, 16);
 
 	printf("candidate keys : \n");
 	print_list(list);
 	free(candidate_key);
+
 	//for (int i = 0; i < 100; i++) {
 	//	free(probable_keys[i]);
 	//}
