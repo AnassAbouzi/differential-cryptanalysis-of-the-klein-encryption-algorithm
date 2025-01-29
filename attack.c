@@ -3,12 +3,12 @@
 #include <stdio.h>
 #include "klein.h"
 #include "time.h"
-#include "list.h"
 #include <omp.h>
 
 #define SIZE_PLAIN 16
 #define true 1
 #define false 0
+#define NB_TEST 6
 
 typedef struct 
 {
@@ -18,6 +18,23 @@ typedef struct
     int *c2;
     int *cprime;
 } Couple;
+
+void initializeACouple(Couple* c) {
+    c->m1 = (int*) malloc(16 * sizeof(int));
+    c->m2 = (int*) malloc(16 * sizeof(int));
+    c->c1 = (int*) malloc(16 * sizeof(int));
+    c->c2 = (int*) malloc(16 * sizeof(int));
+    c->cprime = (int*) malloc(16 * sizeof(int));
+}
+
+void freeACouple(Couple* c) {
+	free(c->m1);
+	free(c->m2);
+	free(c->c1);
+	free(c->c2);
+	free(c->cprime);
+	free(c);
+}
 
 /**
  * @brief Applying the inverse rijndael MixColumns operation to a single column
@@ -35,6 +52,13 @@ void inv_mix_column(int* column) {
 	column[2] = (mult9[column_tmp[0]] ^ mult14[column_tmp[1]] ^ mult11[column_tmp[2]] ^ mult13[column_tmp[3]]) & 0xff;
 	column[3] = (mult13[column_tmp[0]] ^ mult9[column_tmp[1]] ^ mult14[column_tmp[2]] ^ mult11[column_tmp[3]]) & 0xff;
 	free(column_tmp);
+}
+
+void show(int* input, int lenght) {
+	for (int i = 0; i < lenght; i++) {
+		printf("%d ", input[i]);
+	}
+	printf("\n");
 }
 
 /**
@@ -122,9 +146,15 @@ void generateCouple(Couple* c, int* diff, int* key){
 	klein_cipher(c->c2, c->m2, key);
 }
 
+/**
+ * @brief Check if the differential pathway is valid
+ * 
+ * @param state State to be checked
+ * @return int Return 1 if the differential pathway is valid, 0 otherwise
+ */
 int differential_pathway_check(int *state){
 	
-    for (int i = 0; i <= SIZE_PLAIN / 2; i++)
+    for (int i = 0; i < (SIZE_PLAIN / 2); i++)
     {
         if (state[2 * i] != 0){
 	        return false;
@@ -135,7 +165,12 @@ int differential_pathway_check(int *state){
 }
 
 
-
+/**
+ * @brief Copy the values of a couple to another
+ * 
+ * @param source Couple to be copied
+ * @param dest Destination couple
+ */
 void copyCouple(Couple *source, Couple *dest) {
        // Copier les valeurs des membres de la structure
     for (int i = 0; i < 16; i++) {
@@ -147,32 +182,10 @@ void copyCouple(Couple *source, Couple *dest) {
     }
 }
 
-int main(int argc, char ** argv){
-	srand(time(NULL));
-	printf("Attack on %d-klein\n", ROUNDS);
-	int * B_VALUE = (int*) malloc(16 * sizeof(int));
-	int * KEY = (int*) malloc(16 * sizeof(int));
-	int * KEY_tild = (int*) malloc(16 * sizeof(int));
-	for (int i = 0; i < 16; i++) {
-		B_VALUE[i] = 0;
-		KEY[i] = i;
-	}
-	B_VALUE[5] = 0xb;
-	
-	memcpy(KEY_tild, KEY, 16 * sizeof(int));
-	inv_mix_nibbles(KEY_tild);
-	inv_rotate_nibbles(KEY_tild);
-
-	printf("Key value: ");
-	show(KEY, 16);
-
-	//the table of couples for each thread
-	Couple *couples;
-
-	//get the number of threads
+void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int* KEY){
 	int nb_threads =  omp_get_max_threads();
 
-	couples = (Couple*) malloc(nb_threads * sizeof(Couple));
+	Couple *couples = (Couple*) malloc(nb_threads * sizeof(Couple));
 
 	//allocate memory for each couple
 	for (int i = 0; i < nb_threads; i++) {
@@ -182,8 +195,8 @@ int main(int argc, char ** argv){
         couples[i].c2 = (int*) malloc(16 * sizeof(int));
         couples[i].cprime = (int*) malloc(16 * sizeof(int));
     }
-    int counter = 0;
 
+	int counter = 0;
 	//the index of the thread that found the correct couple
 	int found = -1;
 
@@ -203,79 +216,19 @@ int main(int argc, char ** argv){
 						couples[i].c1,
 						couples[i].c2,SIZE_PLAIN);
 
-			#pragma omp critical
-			{
 				// verification of the format of c' (result after inversing the mix nibbles operation of c1 + c2)
 				if (differential_pathway_check(couples[i].cprime)==true){
-					found = omp_get_thread_num();
+					#pragma omp critical
+					{
+						found = i;
+					}
 				}
-			}
-		}
-
-	}
-	copyCouple(&couples[found], &couples[0]);
-	printf("Number of iterations: %d\n", counter);
-	show(couples[0].cprime, SIZE_PLAIN);
-	//============== this code isn't tested yet
-	Node* list = NULL;
-
-	// int** probable_keys = (int **) malloc(sizeof(int*) * 100);
-	// for (int i = 0; i < 100; i++) {
-	// 	probable_keys[i] = (int*) malloc(16 * sizeof(int));
-	// }
-	int* candidate_key = (int*) malloc(16 * sizeof(int));
-	int* tmp1 = (int*) malloc(16 * sizeof(int));
-	int* tmp2 = (int*) malloc(16 * sizeof(int));
-	int* origin_key = (int*) malloc(16 * sizeof(int));
-	// int prob_keys_l = 0;
-
-	inv_rotate_nibbles(couples[0].c1);
-	inv_rotate_nibbles(couples[0].c2);
-	for (int j = 0; j < 16; j++) {
-			candidate_key[j] = KEY_tild[j];
-	}
-	#pragma omp parallel for
-	for (uint64_t k = 0; k < (1ULL << 28); k++) {
-		candidate_key[15] = k & 0xF;
-		candidate_key[13] = (k >> 4) & 0xF;
-		candidate_key[11] = (k >> 8) & 0xF;
-		candidate_key[9] = (k >> 12) & 0xF;
-		candidate_key[7] = (k >> 16) & 0xF;
-		candidate_key[5] = (k >> 20) & 0xF;
-		candidate_key[3] = (k >> 24) & 0xF;
-		
-		xor_nibbles(tmp1, couples[0].c1, candidate_key, 16);
-		xor_nibbles(tmp2, couples[0].c2, candidate_key, 16);
-		sub_nibbles(tmp1);
-		sub_nibbles(tmp2);
-		xor_nibbles(tmp1, tmp1, tmp2, 16);
-		if ((differential_pathway_check(tmp1) == true)){// && (isInList(&list, candidate_key)==0)) {
-			append(&list, candidate_key);
-			// memcpy(probable_keys[prob_keys_l], candidate_key, 16 * sizeof(int));
-			// prob_keys_l++;
+			
 		}
 	}
-
-	memcpy(origin_key, list->data, 16 * sizeof(int));
+	copyCouple(&couples[found], valideCouples[index]);
 	
-	// key reconstruction
-	rotate_nibbles(origin_key);
-	mix_nibbles(origin_key);
-	printf("key tild: ");
-	show(KEY_tild, 16);
 
-	printf("candidate keys : \n");
-	print_list(list);
-	free(candidate_key);
-
-	//for (int i = 0; i < 100; i++) {
-	//	free(probable_keys[i]);
-	//}
-	free_list(list);
-	//=====================
-	
-	//free memory for each couple
-	
 	for (int i = 0; i < nb_threads; i++) {
 		free(couples[i].m1);
 		free(couples[i].m2);
@@ -283,10 +236,129 @@ int main(int argc, char ** argv){
 		free(couples[i].c2);
 		free(couples[i].cprime);
 	}
-	free(origin_key);
 	free(couples);
-	free(B_VALUE);
-	free(KEY_tild);
-	free(KEY);
+}
+
+int keyTest(Couple *validateCouple, int *candidate_key);
+
+int main(int argc, char **argv)
+{
+    srand(time(NULL));
+	printf("Attack on %d-klein\n", ROUNDS);
+	int * b_value = (int*) malloc(16 * sizeof(int));
+	int * key = (int*) malloc(16 * sizeof(int));
+	int * key_tild = (int*) malloc(16 * sizeof(int));
+	for (int i = 0; i < 16; i++) {
+		b_value[i] = 0;
+		key[i] = i;
+	}
+	b_value[5] = 0xb;
+	
+	// generation of the key_tild
+	memcpy(key_tild, key, 16 * sizeof(int));
+	key_derivation(key_tild, ROUNDS);
+	inv_mix_nibbles(key_tild);
+	inv_rotate_nibbles(key_tild);
+
+	printf("Key value: ");
+	show(key, 16);
+	
+	printf("Key tild: ");
+	show(key_tild, 16);
+	
+
+	//generate validate couples
+	Couple **validateCouples = (Couple**) malloc(sizeof(Couple*) * NB_TEST);
+	printf("valide couples : ");
+	for (int i = 0; i < NB_TEST; i++)
+	{
+		validateCouples[i] = (Couple*) malloc(sizeof(Couple));
+		initializeACouple(validateCouples[i]);
+		generateAValideCouple(validateCouples,i, b_value, key);
+		show(validateCouples[i]->cprime, SIZE_PLAIN);
+	}
+	printf("_________\n");
+	int* candidate_key = (int*) malloc(16 * sizeof(int));
+	
+	int* origin_key = (int*) malloc(16 * sizeof(int));
+	// int prob_keys_l = 0;
+
+	
+	for (int j = 0; j < 16; j++) {
+			candidate_key[j] = key_tild[j];
+	}
+
+	int i;
+	int found = false;
+	int flag;
+	// search validate key
+	for (uint64_t k = 0; k < (1ULL << 12); k++) {
+
+
+		candidate_key[15] = k & 0xF;
+		candidate_key[13] = (k >> 4) & 0xF;
+		candidate_key[11] = (k >> 8) & 0xF;
+		// candidate_key[9] = (k >> 12) & 0xF;
+		// candidate_key[7] = (k >> 16) & 0xF;
+		//candidate_key[5] = (k >> 20) & 0xF;
+		//candidate_key[3] = (k >> 24) & 0xF;
+		//candidate_key[1] = (k >> 28) & 0xF;
+
+		//show(candidate_key, 16);
+
+		
+		
+		for (i = 0; i < NB_TEST; i++){
+            if (!keyTest(validateCouples[i], candidate_key))
+			{
+				printf("faux");
+				break;
+			}
+			// show(candidate_key, 16);
+        }
+		
+		if (i == NB_TEST) {
+			found = true;
+			//printf("eee");
+			show(candidate_key, 16);
+		}
+		
+	}
+	// memcpy(origin_key, list->data, 16 * sizeof(int));
+	
+	// key reconstruction
+	//rotate_nibbles(origin_key);
+	//mix_nibbles(origin_key);
+
+
+	for (int j = 0; j < NB_TEST; j++) {
+		freeACouple(validateCouples[j]);
+	}
+	
+	free(origin_key);
+	free(b_value);
+	free(key_tild);
+	free(key);
     return 0;
+}
+/**
+ * @brief Check if the key is valid
+ * 
+ * @param validateCouple 
+ * @param candidate_key 
+ * @return int 
+ */
+int keyTest(Couple *validateCouple, int *candidate_key)
+{
+	int tmp1[16], tmp2[16];
+
+    inv_rotate_nibbles(validateCouple->c1);
+    inv_rotate_nibbles(validateCouple->c2);
+    xor_nibbles(tmp1, validateCouple->c1, candidate_key, 16);
+    xor_nibbles(tmp2, validateCouple->c2, candidate_key, 16);
+    sub_nibbles(tmp1);
+    sub_nibbles(tmp2);
+    xor_nibbles(tmp1, tmp1, tmp2, 16);
+	int res = differential_pathway_check(tmp1);
+    return res;
 }

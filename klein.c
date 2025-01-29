@@ -3,7 +3,7 @@
 
 #include <string.h>
 
-#define ROUNDS 4
+#define ROUNDS 6
 int sbox[] = {7, 4, 0xa, 9, 1, 0xf, 0xb, 0, 0xc, 3, 2, 6, 8, 0xe, 0xd, 5};
 
 //rijndael multiplication lookup tables
