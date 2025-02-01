@@ -3,7 +3,7 @@
 
 #include <string.h>
 
-#define ROUNDS 6
+#define ROUNDS 5
 int sbox[] = {7, 4, 0xa, 9, 1, 0xf, 0xb, 0, 0xc, 3, 2, 6, 8, 0xe, 0xd, 5};
 
 //rijndael multiplication lookup tables
@@ -66,10 +66,10 @@ void add_round_key(int *state, int *key) {
 void sub_nibbles(int *state) {
 	int i;
 	for (i = 0; i < 16; i++) {
-		if (state[i]>= 16){
-			sprintf(stderr,"Out of bounds SBOX\n");
-			exit(22);
-		}
+		//if (state[i] >= 16){
+		//	sprintf(stderr, "Out of bounds SBOX\n");
+		//	exit(22);
+		//}
 		state[i] = sbox[state[i]];
 	}
 }
@@ -139,9 +139,9 @@ void mix_nibbles(int *state) {
 	//after the mixColumn operation we convert the two columns back to our original state format
 	for (i = 0; i < 4; i++) {
 		state[2 * i] = col1[i] >> 4; //extract the high nibble (most significant 4 bits)
-		state[2 * i + 1] = col1[i] & 15; // extract the low nibble (least significant 4 bits)
+		state[2 * i + 1] = col1[i] & 0xF; // extract the low nibble (least significant 4 bits)
 		state[2 * i + 8] = col2[i] >> 4;
-		state[2 * i + 9] = col2[i] & 15;
+		state[2 * i + 9] = col2[i] & 0xF;
 	}
 
 	free(col1);
@@ -235,11 +235,11 @@ void round_function(int* state, int* key, int round) {
 void klein_cipher(int* out, int* state, int* key){
 	int * tmp_key = (int*) malloc(16 * sizeof(int));
 	memcpy(tmp_key, key, sizeof(int) * 16);
+	memcpy(out, state, 16 * sizeof(int));
 	for (int i = 1; i <= ROUNDS; i++) {
-		round_function(state, tmp_key, i);
+		round_function(out, tmp_key, i);
 	}
-	add_round_key(state, tmp_key);
-	memcpy(out, state, sizeof(int) * 16);
+	add_round_key(out, tmp_key);
 	free(tmp_key);
 }
 

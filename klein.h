@@ -4,7 +4,7 @@
 #ifndef KLEIN_H
 #define KLEIN_H
 
-#define ROUNDS 4
+#define ROUNDS 5
 
 extern const int sbox[];
 
@@ -90,5 +90,14 @@ void rotate_nibbles_by_1(int *nibble);
  * @param round current round key
  */
 void key_derivation(int *key, int round);
+
+/**
+ * @brief Klein round function
+ * 
+ * @param state current round state
+ * @param key current round subkey
+ * @param round current round
+ */
+void round_function(int* state, int* key, int round);
 
 #endif

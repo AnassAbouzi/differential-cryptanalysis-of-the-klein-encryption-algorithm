@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": true,
+      "cwd": "c:/Users/anass/Desktop/M2 Cryptis/DLC/projet klein/differential-cryptanalysis-of-the-klein-encryption-algorithm",
+      "program": "c:/Users/anass/Desktop/M2 Cryptis/DLC/projet klein/differential-cryptanalysis-of-the-klein-encryption-algorithm/build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
