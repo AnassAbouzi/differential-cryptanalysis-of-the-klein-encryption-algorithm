@@ -128,24 +128,59 @@ void inv_round_function(int* state, int* key, int round) {
 	add_round_key(state, key);
 }
 
+// /**
+//  * @brief Function qui genere un plain aleatoir
+//  * 
+//  * @param out plain
+//  */
+// void generateCouple(Couple* c, int* diff, int* key){
+//     if (c->m1 == NULL || c->m2 == NULL || c->c1 == NULL || c->c2 == NULL || diff == NULL || key == NULL) {
+//         fprintf(stderr, "Error: One or more pointers are NULL\n");
+//         return;
+//     }
+// 	for (int i = 0; i < SIZE_PLAIN ; i++)
+//     {
+//         c->m1[i] = rand() & 0xF;
+//     }
+// 	xor_nibbles(c->m2, c->m1, diff, SIZE_PLAIN);
+//  klein_cipher(c->c1, c->m1, key);
+// 	klein_cipher(c->c2, c->m2, key);
+// }
+
+/**
+ * @brief pcg32 prng for better quality and performance
+ *
+ * @param state address of the current state  
+ */
+uint64_t pcg32(uint64_t *state) {
+    uint64_t oldstate = *state;
+    *state = oldstate * 6364136223846793005ULL + 1;
+    uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+    uint32_t rot = oldstate >> 59u;
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
 /**
  * @brief Function qui genere un plain aleatoir
  * 
- * @param out plain
+ * @param c a Couple containing the 2 plaintexts, there encryption and the xor of there encryption
+ * @param diff the target value after xoring the two ciphertexts
+ * @param key the secret key used for encryption
+ * @param state the current state of the random variable    
  */
-void generateCouple(Couple* c, int* diff, int* key){
-    if (c->m1 == NULL || c->m2 == NULL || c->c1 == NULL || c->c2 == NULL || diff == NULL || key == NULL) {
+void generateCouple(Couple* c, int* diff, int* key, uint64_t *rand_state){
+	if (c->m1 == NULL || c->m2 == NULL || c->c1 == NULL || c->c2 == NULL || diff == NULL || key == NULL) {
         fprintf(stderr, "Error: One or more pointers are NULL\n");
         return;
     }
-	for (int i = 0; i < SIZE_PLAIN ; i++)
-    {
-        c->m1[i] = rand() % 16;
-    }
+	uint64_t rand_int = pcg32(rand_state);
+	for (int i = 0; i < SIZE_PLAIN; i++){
+		c->m1[i] = (rand_int >> (4 * i)) & 0xF;
+	}
 	xor_nibbles(c->m2, c->m1, diff, SIZE_PLAIN);
-    klein_cipher(c->c1, c->m1, key);
+ 	klein_cipher(c->c1, c->m1, key);
 	klein_cipher(c->c2, c->m2, key);
-}
+} 
 
 /**
  * @brief Check if the differential pathway is valid
@@ -183,7 +218,7 @@ void copyCouple(Couple *source, Couple *dest) {
     }
 }
 
-void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int* KEY){
+void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int* KEY, uint64_t *rand_state){
 	int nb_threads =  omp_get_max_threads();
 
 	Couple *couples = (Couple*) malloc(nb_threads * sizeof(Couple));
@@ -209,7 +244,7 @@ void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int*
 			#pragma omp atomic
 			counter++;
 			// generation of plaintext couples verifying : m1 + m2 = B_VALUE
-			generateCouple(&couples[i], B_VALUE, KEY);
+			generateCouple(&couples[i], B_VALUE, KEY, rand_state);
 			// inverse mix nibbles operation of c1 + c2
 			inv_mix_nibbles(couples[i].c1);
 			inv_mix_nibbles(couples[i].c2);
@@ -244,7 +279,9 @@ int keyTest(Couple *validateCouple, int *candidate_key);
 
 int main(int argc, char **argv)
 {
-    srand(time(NULL)); // seed initialization for random couple generation
+    //srand(time(NULL)); // seed initialization for random couple generation
+	uint64_t* rand_state = (uint64_t*) malloc(sizeof(uint64_t));
+	*rand_state = time(NULL);
 
 	printf("Attack on %d-klein\n", ROUNDS);
 	int * b_value = (int*) malloc(16 * sizeof(int));
@@ -279,7 +316,7 @@ int main(int argc, char **argv)
 	{
 		validateCouples[i] = (Couple*) malloc(sizeof(Couple));
 		initializeACouple(validateCouples[i]);
-		generateAValideCouple(validateCouples,i, b_value, key);
+		generateAValideCouple(validateCouples,i, b_value, key, rand_state);
 		show(validateCouples[i]->cprime, SIZE_PLAIN);
 	}
 	printf("_________\n");
@@ -329,6 +366,7 @@ int main(int argc, char **argv)
 	free(b_value);
 	free(key_tild);
 	free(key);
+	free(rand_state);
     return 0;
 }
 /**

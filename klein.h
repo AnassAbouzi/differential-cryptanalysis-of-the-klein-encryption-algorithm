@@ -4,7 +4,7 @@
 #ifndef KLEIN_H
 #define KLEIN_H
 
-#define ROUNDS 5
+#define ROUNDS 6
 
 extern const int sbox[];
 
