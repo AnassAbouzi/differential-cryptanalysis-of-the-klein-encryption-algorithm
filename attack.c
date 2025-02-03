@@ -128,24 +128,6 @@ void inv_round_function(int* state, int* key, int round) {
 	add_round_key(state, key);
 }
 
-// /**
-//  * @brief Function qui genere un plain aleatoir
-//  * 
-//  * @param out plain
-//  */
-// void generateCouple(Couple* c, int* diff, int* key){
-//     if (c->m1 == NULL || c->m2 == NULL || c->c1 == NULL || c->c2 == NULL || diff == NULL || key == NULL) {
-//         fprintf(stderr, "Error: One or more pointers are NULL\n");
-//         return;
-//     }
-// 	for (int i = 0; i < SIZE_PLAIN ; i++)
-//     {
-//         c->m1[i] = rand() & 0xF;
-//     }
-// 	xor_nibbles(c->m2, c->m1, diff, SIZE_PLAIN);
-//  klein_cipher(c->c1, c->m1, key);
-// 	klein_cipher(c->c2, c->m2, key);
-// }
 
 /**
  * @brief pcg32 prng for better quality and performance
@@ -275,6 +257,134 @@ void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int*
 	free(couples);
 }
 
+int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t *rand_state, int i) {
+    int added = 0;
+	//int done = 0;
+	int nb_threads = omp_get_max_threads();
+	uint64_t rand_ints[nb_threads];
+	Couple *couples = (Couple*) malloc(nb_threads * sizeof(Couple));
+	Couple **result_couples = (Couple**) malloc(nb_threads * sizeof(Couple*));
+
+	//allocate memory for each couple
+	for (int j = 0; j < nb_threads; j++) {
+        couples[j].m1 = (int*) malloc(16 * sizeof(int));
+        couples[j].m2 = (int*) malloc(16 * sizeof(int));
+        couples[j].c1 = (int*) malloc(16 * sizeof(int));
+        couples[j].c2 = (int*) malloc(16 * sizeof(int));
+        couples[j].cprime = (int*) malloc(16 * sizeof(int));
+		copyCouple(validateCouples[i], &couples[j]);
+    }
+
+	// allocate memory for each result couple
+	for (int j = 0; j < nb_threads; j++) {
+		result_couples[j] = (Couple*) malloc(nb_threads * sizeof(Couple));
+		for (int k = 0; k < NB_TEST; k++) {
+			result_couples[j][k].m1 = (int*) malloc(16 * sizeof(int));
+			result_couples[j][k].m2 = (int*) malloc(16 * sizeof(int));
+			result_couples[j][k].c1 = (int*) malloc(16 * sizeof(int));
+			result_couples[j][k].c2 = (int*) malloc(16 * sizeof(int));
+			result_couples[j][k].cprime = (int*) malloc(16 * sizeof(int));
+    	}
+    }
+
+
+	// generate random numbers for each thread
+	for (int j = 0; j < nb_threads; j++) {
+		rand_ints[j] = pcg32(rand_state);
+	}
+	int id;
+	int* counter =  (int*) calloc(nb_threads, sizeof(int));
+	uint64_t r;
+	
+    #pragma omp parallel shared(added, i, validateCouples, b_value) private(id, r, counter) firstprivate(key)
+	{
+		id = omp_get_thread_num();
+        // Couple *tmp_couple = (Couple*) malloc(sizeof(Couple));
+        // counter[id] = 0;
+		
+        #pragma omp for 
+        for (uint64_t tries = 0; tries < (1ULL << 15); tries++) {
+			// if (done) {
+			// 	#pragma omp cancel for
+			// }
+            r = pcg32(&rand_ints[id]); 
+            couples[id].m1[0] = r & 0xF;
+            couples[id].m1[1] = (r >> 4) & 0xF;
+            couples[id].m1[2] = (r >> 8) & 0xF;
+            couples[id].m1[3] = (r >> 12) & 0xF;
+            couples[id].m1[12] = (r >> 16) & 0xF;
+            couples[id].m1[13] = (r >> 20) & 0xF;
+            couples[id].m1[14] = (r >> 24) & 0xF;
+            couples[id].m1[15] = (r >> 28) & 0xF;
+
+            xor_nibbles(couples[id].m2, couples[id].m1, b_value, SIZE_PLAIN);
+            klein_cipher(couples[id].c1, couples[id].m1, key);
+            klein_cipher(couples[id].c2, couples[id].m2, key);
+            inv_mix_nibbles(couples[id].c1);
+            inv_mix_nibbles(couples[id].c2);
+            xor_nibbles(couples[id].cprime, couples[id].c1, couples[id].c2, SIZE_PLAIN);
+
+            if (differential_pathway_check(couples[id].cprime)) {
+                #pragma omp critical
+                {
+                    if (i + added < NB_TEST - 1) { 
+                        added++;
+                        copyCouple(&couples[id], &result_couples[id][counter[id]]);
+						counter[id]++;
+                    }
+                }
+            }
+        }
+		// for (int j = 0; j < nb_threads; j++) {
+		// 	freeACouple(&couples[j]);
+		// }
+        // free(couples);
+    }		
+	
+	for (int j = 0; j < nb_threads; j++) {
+		free(couples[j].m1);
+		free(couples[j].m2);
+		free(couples[j].c1);
+		free(couples[j].c2);
+		free(couples[j].cprime);
+	}
+	free(couples);
+
+	if (added <= 1) {
+		for (int j = 0; j < nb_threads; j++) {
+			for (int k = 0; k < NB_TEST; k++) {
+				free(result_couples[j][k].m1);
+				free(result_couples[j][k].m2);
+				free(result_couples[j][k].c1);
+				free(result_couples[j][k].c2);
+				free(result_couples[j][k].cprime);
+			}
+			free(result_couples[j]);
+		}
+		free(counter);
+		return -1;
+	} else {
+		for (int j = 0; j < nb_threads; j ++) {
+			for (int k = 0; k < counter[j]; k++) {
+				copyCouple(&result_couples[j][k], validateCouples[i]);
+				i++;
+			}
+		}
+		for (int j = 0; j < nb_threads; j++) {
+			for (int k = 0; k < NB_TEST; k++) {
+				free(result_couples[j][k].m1);
+				free(result_couples[j][k].m2);
+				free(result_couples[j][k].c1);
+				free(result_couples[j][k].c2);
+				free(result_couples[j][k].cprime);
+			}
+			free(result_couples[j]);
+		}
+		free(counter);
+		return added;
+	}
+}
+
 int keyTest(Couple *validateCouple, int *candidate_key);
 
 int main(int argc, char **argv)
@@ -306,18 +416,24 @@ int main(int argc, char **argv)
 	
 	printf("Key tild: ");
 	show(key_tild, 16);
-	
-
 
 	//generate validate couples
 	Couple **validateCouples = (Couple**) malloc(sizeof(Couple*) * NB_TEST);
+	for (int j = 0; j < NB_TEST; j++) {
+		validateCouples[j] = (Couple*) malloc(sizeof(Couple));
+		initializeACouple(validateCouples[j]);
+	}
 	printf("valide couples : ");
+	int added;
 	for (int i = 0; i < NB_TEST; i++)
 	{
-		validateCouples[i] = (Couple*) malloc(sizeof(Couple));
-		initializeACouple(validateCouples[i]);
 		generateAValideCouple(validateCouples,i, b_value, key, rand_state);
-		show(validateCouples[i]->cprime, SIZE_PLAIN);
+		added = neutral_bits_gen(validateCouples, b_value, key, rand_state, i);
+		i += added;
+		i = (i >= 0) ? i : 0;
+	}
+	for (int i = 0; i < NB_TEST; i++) {
+		show(validateCouples[i], 16);
 	}
 	printf("_________\n");
 	
@@ -340,9 +456,6 @@ int main(int argc, char **argv)
 		//candidate_key[5] = (k >> 20) & 0xF;
 		//candidate_key[3] = (k >> 24) & 0xF;
 		//candidate_key[1] = (k >> 28) & 0xF;
-
-		//show(candidate_key, 16);
-
 		
 		
 		for (i = 0; i < NB_TEST; i++){
@@ -363,12 +476,15 @@ int main(int argc, char **argv)
 		freeACouple(validateCouples[j]);
 	}
 	
+	free(candidate_key);
+	free(validateCouples);
 	free(b_value);
 	free(key_tild);
 	free(key);
 	free(rand_state);
     return 0;
 }
+
 /**
  * @brief Check if the key is valid
  * 
