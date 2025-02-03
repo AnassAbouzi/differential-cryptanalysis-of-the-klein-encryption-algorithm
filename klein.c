@@ -66,10 +66,10 @@ void add_round_key(int *state, int *key) {
 void sub_nibbles(int *state) {
 	int i;
 	for (i = 0; i < 16; i++) {
-		if (state[i] >= 16){
-			sprintf(stderr, "Out of bounds SBOX\n");
-			exit(22);
-		}
+		// if (state[i] >= 16){
+		// 	sprintf(stderr, "Out of bounds SBOX\n");
+		// 	exit(22);
+		// }
 		state[i] = sbox[state[i]];
 	}
 }

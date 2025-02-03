@@ -257,133 +257,170 @@ void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int*
 	free(couples);
 }
 
-int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t *rand_state, int i) {
-    int added = 0;
-	//int done = 0;
-	int nb_threads = omp_get_max_threads();
-	uint64_t rand_ints[nb_threads];
-	Couple *couples = (Couple*) malloc(nb_threads * sizeof(Couple));
-	Couple **result_couples = (Couple**) malloc(nb_threads * sizeof(Couple*));
-
-	//allocate memory for each couple
-	for (int j = 0; j < nb_threads; j++) {
-        couples[j].m1 = (int*) malloc(16 * sizeof(int));
-        couples[j].m2 = (int*) malloc(16 * sizeof(int));
-        couples[j].c1 = (int*) malloc(16 * sizeof(int));
-        couples[j].c2 = (int*) malloc(16 * sizeof(int));
-        couples[j].cprime = (int*) malloc(16 * sizeof(int));
-		copyCouple(validateCouples[i], &couples[j]);
-    }
-
-	// allocate memory for each result couple
-	for (int j = 0; j < nb_threads; j++) {
-		result_couples[j] = (Couple*) malloc(nb_threads * sizeof(Couple));
-		for (int k = 0; k < NB_TEST; k++) {
-			result_couples[j][k].m1 = (int*) malloc(16 * sizeof(int));
-			result_couples[j][k].m2 = (int*) malloc(16 * sizeof(int));
-			result_couples[j][k].c1 = (int*) malloc(16 * sizeof(int));
-			result_couples[j][k].c2 = (int*) malloc(16 * sizeof(int));
-			result_couples[j][k].cprime = (int*) malloc(16 * sizeof(int));
-    	}
-    }
-
-
-	// generate random numbers for each thread
-	for (int j = 0; j < nb_threads; j++) {
-		rand_ints[j] = pcg32(rand_state);
-	}
-	int id;
-	int* counter =  (int*) calloc(nb_threads, sizeof(int));
+int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t *rand_state, int i){
+	int added = 0;
 	uint64_t r;
-	
-    #pragma omp parallel shared(added, i, validateCouples, b_value) private(id, r, counter) firstprivate(key)
-	{
-		id = omp_get_thread_num();
-        // Couple *tmp_couple = (Couple*) malloc(sizeof(Couple));
-        // counter[id] = 0;
-		
-        #pragma omp for 
-        for (uint64_t tries = 0; tries < (1ULL << 15); tries++) {
-			// if (done) {
-			// 	#pragma omp cancel for
-			// }
-            r = pcg32(&rand_ints[id]); 
-            couples[id].m1[0] = r & 0xF;
-            couples[id].m1[1] = (r >> 4) & 0xF;
-            couples[id].m1[2] = (r >> 8) & 0xF;
-            couples[id].m1[3] = (r >> 12) & 0xF;
-            couples[id].m1[12] = (r >> 16) & 0xF;
-            couples[id].m1[13] = (r >> 20) & 0xF;
-            couples[id].m1[14] = (r >> 24) & 0xF;
-            couples[id].m1[15] = (r >> 28) & 0xF;
+	Couple* tmp_couple = (Couple*) malloc(sizeof(Couple));
+	initializeACouple(tmp_couple);
+	copyCouple(validateCouples[i], tmp_couple);
+	for (int j = 0; j < (1ULL << 30); j++) {
+		r = pcg32(rand_state); 
+        tmp_couple->m1[0] = r & 0xF;
+        tmp_couple->m1[1] = (r >> 4) & 0xF;
+        tmp_couple->m1[2] = (r >> 8) & 0xF;
+        tmp_couple->m1[3] = (r >> 12) & 0xF;
+        tmp_couple->m1[12] = (r >> 16) & 0xF;
+        tmp_couple->m1[13] = (r >> 20) & 0xF;
+        tmp_couple->m1[14] = (r >> 24) & 0xF;
+        tmp_couple->m1[15] = (r >> 28) & 0xF;
 
-            xor_nibbles(couples[id].m2, couples[id].m1, b_value, SIZE_PLAIN);
-            klein_cipher(couples[id].c1, couples[id].m1, key);
-            klein_cipher(couples[id].c2, couples[id].m2, key);
-            inv_mix_nibbles(couples[id].c1);
-            inv_mix_nibbles(couples[id].c2);
-            xor_nibbles(couples[id].cprime, couples[id].c1, couples[id].c2, SIZE_PLAIN);
+        xor_nibbles(tmp_couple->m2, tmp_couple->m1, b_value, SIZE_PLAIN);
+        klein_cipher(tmp_couple->c1, tmp_couple->m1, key);
+        klein_cipher(tmp_couple->c2, tmp_couple->m2, key);
+        inv_mix_nibbles(tmp_couple->c1);
+        inv_mix_nibbles(tmp_couple->c2);
+        xor_nibbles(tmp_couple->cprime, tmp_couple->c1, tmp_couple->c2, SIZE_PLAIN);
 
-            if (differential_pathway_check(couples[id].cprime)) {
-                #pragma omp critical
-                {
-                    if (i + added < NB_TEST - 1) { 
-                        added++;
-                        copyCouple(&couples[id], &result_couples[id][counter[id]]);
-						counter[id]++;
-                    }
-                }
-            }
-        }
-		// for (int j = 0; j < nb_threads; j++) {
-		// 	freeACouple(&couples[j]);
-		// }
-        // free(couples);
-    }		
-	
-	for (int j = 0; j < nb_threads; j++) {
-		free(couples[j].m1);
-		free(couples[j].m2);
-		free(couples[j].c1);
-		free(couples[j].c2);
-		free(couples[j].cprime);
-	}
-	free(couples);
-
-	if (added <= 1) {
-		for (int j = 0; j < nb_threads; j++) {
-			for (int k = 0; k < NB_TEST; k++) {
-				free(result_couples[j][k].m1);
-				free(result_couples[j][k].m2);
-				free(result_couples[j][k].c1);
-				free(result_couples[j][k].c2);
-				free(result_couples[j][k].cprime);
-			}
-			free(result_couples[j]);
-		}
-		free(counter);
-		return -1;
-	} else {
-		for (int j = 0; j < nb_threads; j ++) {
-			for (int k = 0; k < counter[j]; k++) {
-				copyCouple(&result_couples[j][k], validateCouples[i]);
+		if (differential_pathway_check(tmp_couple->cprime) && (i < NB_TEST - 1) && (added < 4)) {
 				i++;
-			}
+                copyCouple(tmp_couple, validateCouples[i]);
+                added++;
+        }
+		if ((i >= NB_TEST - 1) || (added >= 4)) {
+			break;
 		}
-		for (int j = 0; j < nb_threads; j++) {
-			for (int k = 0; k < NB_TEST; k++) {
-				free(result_couples[j][k].m1);
-				free(result_couples[j][k].m2);
-				free(result_couples[j][k].c1);
-				free(result_couples[j][k].c2);
-				free(result_couples[j][k].cprime);
-			}
-			free(result_couples[j]);
-		}
-		free(counter);
-		return added;
 	}
-}
+	freeACouple(tmp_couple);
+	return (added >= 1) ? added : -1;
+} 	
+
+// int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t *rand_state, int i) {
+//     int added = 0;
+// 	//int done = 0;
+// 	int nb_threads = omp_get_max_threads();
+// 	uint64_t rand_ints[nb_threads];
+// 	Couple *couples = (Couple*) malloc(nb_threads * sizeof(Couple));
+// 	Couple **result_couples = (Couple**) malloc(nb_threads * sizeof(Couple*));
+
+// 	//allocate memory for each couple
+// 	for (int j = 0; j < nb_threads; j++) {
+//         couples[j].m1 = (int*) malloc(16 * sizeof(int));
+//         couples[j].m2 = (int*) malloc(16 * sizeof(int));
+//         couples[j].c1 = (int*) malloc(16 * sizeof(int));
+//         couples[j].c2 = (int*) malloc(16 * sizeof(int));
+//         couples[j].cprime = (int*) malloc(16 * sizeof(int));
+// 		copyCouple(validateCouples[i], &couples[j]);
+//     }
+
+// 	// allocate memory for each result couple
+// 	for (int j = 0; j < nb_threads; j++) {
+// 		result_couples[j] = (Couple*) malloc(nb_threads * sizeof(Couple));
+// 		for (int k = 0; k < NB_TEST; k++) {
+// 			result_couples[j][k].m1 = (int*) malloc(16 * sizeof(int));
+// 			result_couples[j][k].m2 = (int*) malloc(16 * sizeof(int));
+// 			result_couples[j][k].c1 = (int*) malloc(16 * sizeof(int));
+// 			result_couples[j][k].c2 = (int*) malloc(16 * sizeof(int));
+// 			result_couples[j][k].cprime = (int*) malloc(16 * sizeof(int));
+//     	}
+//     }
+
+
+// 	// generate random numbers for each thread
+// 	for (int j = 0; j < nb_threads; j++) {
+// 		rand_ints[j] = pcg32(rand_state);
+// 	}
+// 	int id;
+// 	int* counter =  (int*) calloc(nb_threads, sizeof(int));
+// 	uint64_t r;
+	
+//     #pragma omp parallel shared(added, i, validateCouples, b_value) private(id, r, counter) firstprivate(key)
+// 	{
+// 		id = omp_get_thread_num();
+//         // Couple *tmp_couple = (Couple*) malloc(sizeof(Couple));
+//         // counter[id] = 0;
+		
+//         #pragma omp for 
+//         for (uint64_t tries = 0; tries < (1ULL << 15); tries++) {
+// 			// if (done) {
+// 			// 	#pragma omp cancel for
+// 			// }
+//             r = pcg32(&rand_ints[id]); 
+//             couples[id].m1[0] = r & 0xF;
+//             couples[id].m1[1] = (r >> 4) & 0xF;
+//             couples[id].m1[2] = (r >> 8) & 0xF;
+//             couples[id].m1[3] = (r >> 12) & 0xF;
+//             couples[id].m1[12] = (r >> 16) & 0xF;
+//             couples[id].m1[13] = (r >> 20) & 0xF;
+//             couples[id].m1[14] = (r >> 24) & 0xF;
+//             couples[id].m1[15] = (r >> 28) & 0xF;
+
+//             xor_nibbles(couples[id].m2, couples[id].m1, b_value, SIZE_PLAIN);
+//             klein_cipher(couples[id].c1, couples[id].m1, key);
+//             klein_cipher(couples[id].c2, couples[id].m2, key);
+//             inv_mix_nibbles(couples[id].c1);
+//             inv_mix_nibbles(couples[id].c2);
+//             xor_nibbles(couples[id].cprime, couples[id].c1, couples[id].c2, SIZE_PLAIN);
+
+//             if (differential_pathway_check(couples[id].cprime)) {
+//                 #pragma omp critical
+//                 {
+//                     if (i + added < NB_TEST - 1) { 
+//                         added++;
+//                         copyCouple(&couples[id], &result_couples[id][counter[id]]);
+// 						counter[id]++;
+//                     }
+//                 }
+//             }
+//         }
+// 		// for (int j = 0; j < nb_threads; j++) {
+// 		// 	freeACouple(&couples[j]);
+// 		// }
+//         // free(couples);
+//     }		
+	
+// 	for (int j = 0; j < nb_threads; j++) {
+// 		free(couples[j].m1);
+// 		free(couples[j].m2);
+// 		free(couples[j].c1);
+// 		free(couples[j].c2);
+// 		free(couples[j].cprime);
+// 	}
+// 	free(couples);
+
+// 	if (added <= 1) {
+// 		for (int j = 0; j < nb_threads; j++) {
+// 			for (int k = 0; k < NB_TEST; k++) {
+// 				free(result_couples[j][k].m1);
+// 				free(result_couples[j][k].m2);
+// 				free(result_couples[j][k].c1);
+// 				free(result_couples[j][k].c2);
+// 				free(result_couples[j][k].cprime);
+// 			}
+// 			free(result_couples[j]);
+// 		}
+// 		free(counter);
+// 		return -1;
+// 	} else {
+// 		for (int j = 0; j < nb_threads; j ++) {
+// 			for (int k = 0; k < counter[j]; k++) {
+// 				copyCouple(&result_couples[j][k], validateCouples[i]);
+// 				i++;
+// 			}
+// 		}
+// 		for (int j = 0; j < nb_threads; j++) {
+// 			for (int k = 0; k < NB_TEST; k++) {
+// 				free(result_couples[j][k].m1);
+// 				free(result_couples[j][k].m2);
+// 				free(result_couples[j][k].c1);
+// 				free(result_couples[j][k].c2);
+// 				free(result_couples[j][k].cprime);
+// 			}
+// 			free(result_couples[j]);
+// 		}
+// 		free(counter);
+// 		return added;
+// 	}
+// }
 
 int keyTest(Couple *validateCouple, int *candidate_key);
 
@@ -424,16 +461,18 @@ int main(int argc, char **argv)
 		initializeACouple(validateCouples[j]);
 	}
 	printf("valide couples : ");
-	int added;
-	for (int i = 0; i < NB_TEST; i++)
+	int added = 0;
+	int index = 0;
+	while(index < NB_TEST)
 	{
-		generateAValideCouple(validateCouples,i, b_value, key, rand_state);
-		added = neutral_bits_gen(validateCouples, b_value, key, rand_state, i);
-		i += added;
-		i = (i >= 0) ? i : 0;
+		generateAValideCouple(validateCouples,index, b_value, key, rand_state);
+		added = neutral_bits_gen(validateCouples, b_value, key, rand_state, index);
+		index++;
+		index += added;
+		index = (index >= 0) ? index : 0;
 	}
 	for (int i = 0; i < NB_TEST; i++) {
-		show(validateCouples[i], 16);
+		show(validateCouples[i]->cprime, 16);
 	}
 	printf("_________\n");
 	
