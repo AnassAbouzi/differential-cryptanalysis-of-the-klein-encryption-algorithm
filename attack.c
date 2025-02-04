@@ -281,12 +281,12 @@ int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t 
         inv_mix_nibbles(tmp_couple->c2);
         xor_nibbles(tmp_couple->cprime, tmp_couple->c1, tmp_couple->c2, SIZE_PLAIN);
 
-		if (differential_pathway_check(tmp_couple->cprime) && (i < NB_TEST - 1) && (added < 4)) {
+		if (differential_pathway_check(tmp_couple->cprime) && (i < NB_TEST - 1) && (added < 3)) {
 				i++;
                 copyCouple(tmp_couple, validateCouples[i]);
                 added++;
         }
-		if ((i >= NB_TEST - 1) || (added >= 4)) {
+		if ((i >= NB_TEST - 1) || (added >= 3)) {
 			break;
 		}
 	}
