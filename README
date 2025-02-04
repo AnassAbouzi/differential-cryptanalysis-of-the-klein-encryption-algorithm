@@ -1,0 +1,4 @@
+Pour lancer l'attaque, vous devez d'abord spécifier le nombre de tours en modifiant la variable globale ROUNDS dans les fichiers klein.c et klein.h. Ensuite, exécutez les commandes suivantes :
+make clean
+make attack
+./attack
