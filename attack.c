@@ -257,13 +257,31 @@ void generateAValideCouple(Couple** valideCouples, int index, int* B_VALUE, int*
 	free(couples);
 }
 
+int cmp_arr(int* arr1, int* arr2, int l) {
+	for (int i = 0; i < l; i++) {
+		if (arr1[i] != arr2[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+int cmp_couple(Couple* c1, Couple* c2) {
+	if (cmp_arr(c1->m1, c2->m1, SIZE_PLAIN) && cmp_arr(c1->m2, c2->m2, SIZE_PLAIN)) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
 int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t *rand_state, int i){
-	int added = 0;
+	int f, added = 0;
 	uint64_t r;
 	Couple* tmp_couple = (Couple*) malloc(sizeof(Couple));
 	initializeACouple(tmp_couple);
 	copyCouple(validateCouples[i], tmp_couple);
-	for (int j = 0; j < (1ULL << 30); j++) {
+	for (int j = 0; j < (1ULL << 32); j++) {
+		f = 0;
 		r = pcg32(rand_state); 
         tmp_couple->m1[0] = r & 0xF;
         tmp_couple->m1[1] = (r >> 4) & 0xF;
@@ -273,7 +291,14 @@ int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t 
         tmp_couple->m1[13] = (r >> 20) & 0xF;
         tmp_couple->m1[14] = (r >> 24) & 0xF;
         tmp_couple->m1[15] = (r >> 28) & 0xF;
-
+		for (int k = 0; k <= i; k++) {
+			if (cmp_couple(tmp_couple, validateCouples[k])) {
+				f = 1;
+			}
+		}
+		if (f == 1) {
+			continue;
+		}
         xor_nibbles(tmp_couple->m2, tmp_couple->m1, b_value, SIZE_PLAIN);
         klein_cipher(tmp_couple->c1, tmp_couple->m1, key);
         klein_cipher(tmp_couple->c2, tmp_couple->m2, key);
@@ -291,7 +316,7 @@ int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t 
 		}
 	}
 	freeACouple(tmp_couple);
-	return (added >= 1) ? added : -1;
+	return (added > 1) ? added : -1;
 } 	
 
 // int neutral_bits_gen(Couple **validateCouples, int *b_value, int *key, uint64_t *rand_state, int i) {
